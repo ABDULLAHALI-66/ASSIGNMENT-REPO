@@ -1,0 +1,212 @@
+--JOINS--
+SELECT * from sales.orders
+SELECT * from sales.customers 
+
+SELECT
+    o.order_id,
+    cust.first_name + ' ' + cust.last_name AS customer_name,
+    store.store_name,
+    staff.first_name + ' ' + staff.last_name AS staff_name
+FROM sales.orders AS o
+INNER JOIN sales.customers AS cust
+    ON o.customer_id = cust.customer_id
+INNER JOIN sales.stores AS store
+    ON o.store_id = store.store_id
+INNER JOIN sales.staffs AS staff
+    ON o.staff_id = staff.staff_id;
+
+select * from production.products
+select * from production.brands
+select * from production.categories;
+--QEURY 2;
+SELECT p.product_name, b.brand_name, c.category_name
+from production.products as p
+left join production.brands as b
+ON p.brand_id = b.brand_id
+left join production.categories AS c
+ON p.category_id = c.category_id;
+
+select * from sales.customers
+select * from sales.order_items
+
+--QUERY 3;
+SELECT cust.first_name,cust.last_name, cust.city, cust.email, oi.item_id
+FROM sales.customers AS cust
+left join sales.orders AS o
+ON cust.customer_id = o.customer_id
+left join sales.order_items AS oi
+ON o.order_id = oi.order_id
+WHERE oi.item_id IS NULL
+
+--QUERY 4;
+
+SELECT
+    stores.store_name,
+    SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS total_revenue
+FROM sales.orders  orders
+JOIN sales.stores  stores
+    ON orders.store_id = stores.store_id
+JOIN sales.order_items AS oi
+    ON orders.order_id = oi.order_id
+GROUP BY stores.store_name
+ORDER BY total_revenue DESC;
+
+--QUERY 5;
+SELECT
+    brands.brand_name,
+    COUNT(products.product_id) AS number_of_products,
+    AVG(products.list_price) AS average_list_price,
+    MAX(products.list_price) AS highest_list_price
+FROM production.brands AS brands
+JOIN production.products AS products
+    ON brands.brand_id = products.brand_id
+GROUP BY brands.brand_name
+HAVING COUNT(products.product_id) > 5;
+
+--QUERY 6
+SELECT
+    MONTH(o.order_date) AS month_number,
+    COUNT(DISTINCT o.order_id) AS number_of_orders,
+    SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS total_revenue
+FROM sales.orders AS o
+JOIN sales.order_items AS oi
+    ON o.order_id = oi.order_id
+WHERE YEAR(o.order_date) = 2017
+GROUP BY MONTH(o.order_date)
+ORDER BY MONTH(o.order_date);
+
+--QUERY 7
+SELECT
+    p.product_id,
+    p.product_name,
+    p.category_id,
+    p.list_price
+FROM production.products AS p
+WHERE p.list_price > (
+    SELECT AVG(p2.list_price)
+    FROM production.products AS p2
+    WHERE p2.category_id = p.category_id
+);
+
+
+-- QUERY 8
+
+SELECT
+    c.customer_id,
+    c.first_name,
+    c.last_name,
+    COUNT(o.order_id) AS order_count
+FROM sales.customers AS c
+JOIN sales.orders AS o
+    ON c.customer_id = o.customer_id
+GROUP BY
+    c.customer_id,
+    c.first_name,
+    c.last_name
+HAVING COUNT(o.order_id) > (
+    SELECT AVG(order_count)
+    FROM (
+        SELECT
+            customer_id,
+            COUNT(*) AS order_count
+        FROM sales.orders
+        GROUP BY customer_id
+    ) AS customer_orders
+);
+
+--QUERY 9
+
+WITH CustomerSpend AS (
+    SELECT
+        c.customer_id,
+        c.first_name,
+        c.last_name,
+        SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS total_spend
+    FROM sales.customers AS c
+    JOIN sales.orders AS o
+        ON c.customer_id = o.customer_id
+    JOIN sales.order_items AS oi
+        ON o.order_id = oi.order_id
+    GROUP BY
+        c.customer_id,
+        c.first_name,
+        c.last_name
+),
+CustomerLabels AS (
+    SELECT
+        customer_id,
+        first_name,
+        last_name,
+        total_spend,
+        CASE
+            WHEN total_spend > (SELECT AVG(total_spend) FROM CustomerSpend)
+                THEN 'High'
+            ELSE 'Regular'
+        END AS customer_type
+    FROM CustomerSpend
+),
+RankedCustomers AS (
+    SELECT
+        customer_id,
+        first_name,
+        last_name,
+        total_spend,
+        customer_type,
+        RANK() OVER (ORDER BY total_spend DESC) AS spend_rank
+    FROM CustomerLabels
+)
+SELECT TOP 10
+    customer_id,
+    first_name,
+    last_name,
+    total_spend,
+    customer_type,
+    spend_rank
+FROM RankedCustomers
+ORDER BY spend_rank;
+
+--QUERY 10
+WITH ProductSales AS (
+    SELECT
+        p.product_id,
+        p.product_name,
+        p.category_id,
+        SUM(oi.quantity) AS total_quantity_sold
+    FROM production.products AS p
+    JOIN sales.order_items AS oi
+        ON p.product_id = oi.product_id
+    GROUP BY
+        p.product_id,
+        p.product_name,
+        p.category_id
+),
+RankedProducts AS (
+    SELECT
+        product_id,
+        product_name,
+        category_id,
+        total_quantity_sold,
+        ROW_NUMBER() OVER (
+            PARTITION BY category_id
+            ORDER BY total_quantity_sold DESC
+        ) AS product_rank
+    FROM ProductSales
+)
+SELECT
+    rp.category_id,
+    rp.product_id,
+    rp.product_name,
+    rp.total_quantity_sold,
+    SUM(s.quantity) AS stock_available
+FROM RankedProducts AS rp
+JOIN production.stocks AS s
+    ON rp.product_id = s.product_id
+WHERE rp.product_rank = 1
+GROUP BY
+    rp.category_id,
+    rp.product_id,
+    rp.product_name,
+    rp.total_quantity_sold
+ORDER BY rp.category_id;
+
+-------------------------
